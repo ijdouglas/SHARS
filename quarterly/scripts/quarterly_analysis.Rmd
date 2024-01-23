@@ -1,0 +1,75 @@
+---
+title: "MAC Quarterly Fiscal Analysis"
+author: "Ian J. Douglas"
+date: "2024-01-23"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(readxl)
+library(readr)
+library(purrr)
+conflicted::conflict_prefer('map', 'purrr')
+```
+
+
+```{r}
+dirs = list.dirs('../data/voucher_reports/', full.names = T, recursive = F)
+files = purrr::map(dirs, list.files, full.names = T) %>%
+  unlist %>% 
+  reduce(.f = c)
+files
+```
+
+```{r}
+list_data = files %>%
+  map(~{
+    map(excel_sheets(.x), \(y) {
+      read_xlsx(.x, sheet = y) %>%
+        select(1, 4:Notes) %>%
+        # The first column (whatever it's named) can't be NA
+        dplyr::filter(if_all(1, ~!is.na(.))) %>%
+        select(-Notes) %>%
+        mutate(file = tail(strsplit(.x, '/')[[1]], 1), sheet = y) %>%
+        mutate(across(file, ~sub(".[[:alpha:]]+$", '', .))) %>%
+        select(file, sheet, everything())
+    })
+  }) %>%
+  # Just make it one big list
+  reduce(c)
+```
+
+# Convert all to time series
+```{r}
+time_series_list = list_data %>%
+  map(~{
+    id_col = names(.x)[3] # varies between Program and Entity
+    .x %>%
+      pivot_longer(4:last_col(), names_to = 'quarter') %>%
+      pivot_wider(names_from = all_of(id_col), values_from = 'value', id_cols = c('quarter', 'file','sheet')) %>%
+      select(file, sheet, quarter, everything()) %>%
+      mutate(year = as.integer(str_extract(quarter, '[[:digit:]]{2}')),
+             quarter_num = case_when(grepl('^JM', quarter) ~ 1L, 
+                                     grepl('^AJ', quarter) ~ 2L, 
+                                     grepl('^JS', quarter) ~ 3L,
+                                     grepl('^OD', quarter) ~ 4L)) %>%
+      select(file, sheet, year, quarter_num, quarter, everything()) %>%
+      arrange(desc(year), desc(quarter_num))
+  })
+
+# Compute percent changes
+pct_chg_data_list = time_series_list %>%
+  map(~{mutate(across(where(is.double, ~(abs(. - c(tail(., -1), 0))))})
+```
+
+
+
+
+
+# Function to compute percent change from quarter to quarter
+```{r}
+make_pct_change_df = function(df) {
+  # Start with a data frame containing time series data (basically)
+}
+```
+
